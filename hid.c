@@ -6,10 +6,10 @@
 static usb_error_t hid_ReportCallback(usb_endpoint_t pEndpoint, usb_transfer_status_t status,
                                       size_t size, hid_state_t *hid);
 static bool hid_IsKeyDownInReport(hid_keyboard_report_t *report, uint8_t key_code);
-usb_error_t hid_SetProtocol(hid_state_t *hid, bool report);
+hid_error_t hid_SetProtocol(hid_state_t *hid, bool report);
 
 static usb_error_t hid_ReportCallback(usb_endpoint_t pEndpoint, usb_transfer_status_t status,
-                               size_t size, hid_state_t *hid) {
+                                      size_t size, hid_state_t *hid) {
 
     if(status) {
         dbg_sprintf(dbgout, "callback called with status %u\n", status);
@@ -74,13 +74,13 @@ static usb_error_t hid_ReportCallback(usb_endpoint_t pEndpoint, usb_transfer_sta
             /* Check mouse buttons */
             for(i = 0; i < 8; i++) {
                 uint8_t button = 1 << i;
-                if(hid->report.kb.modifiers & button) {
-                    if(!(hid->last_report.kb.modifiers & button)) {
-                        hid->callback(hid, HID_EVENT_MOUSE_DOWN, button, hid->callback_data);
+                if(hid->report.mouse.buttons & button) {
+                    if(!(hid->last_report.mouse.buttons & button)) {
+                        hid->callback(hid, HID_EVENT_MOUSE_DOWN, i, hid->callback_data);
                     }
                 } else {
-                    if(hid->last_report.kb.modifiers & button) {
-                        hid->callback(hid, HID_EVENT_MOUSE_UP, button, hid->callback_data);
+                    if(hid->last_report.mouse.buttons & button) {
+                        hid->callback(hid, HID_EVENT_MOUSE_UP, i, hid->callback_data);
                     }
                 }
             }
@@ -94,8 +94,8 @@ static usb_error_t hid_ReportCallback(usb_endpoint_t pEndpoint, usb_transfer_sta
     return USB_SUCCESS;
 }
 
-usb_error_t hid_Init(hid_state_t *hid) {
-    usb_error_t error;
+hid_error_t hid_Init(hid_state_t *hid) {
+    hid_error_t error;
     hid->delta_x = 0;
     hid->delta_y = 0;
     hid->report_size = sizeof(hid->report);
@@ -106,17 +106,18 @@ usb_error_t hid_Init(hid_state_t *hid) {
         dbg_sprintf(dbgout, "error %u on protocol set\n", error);
         return error;
     }
-    hid_SetIdle(hid, 1);
+    hid_SetIdleTime(hid, 1);
     if(hid->in) {
-        error = usb_ScheduleTransfer(hid->in, &hid->report, hid->report_size,
-                                     (usb_transfer_callback_t)hid_ReportCallback, hid);
+        error = (hid_error_t)usb_ScheduleTransfer(hid->in, &hid->report,
+                                                  hid->report_size,
+                                                  (usb_transfer_callback_t)hid_ReportCallback, hid);
         if(error) {
             dbg_sprintf(dbgout, "error %u on initial schedule\n", error);
             return error;
         }
     }
     hid->active = true;
-    return USB_SUCCESS;
+    return HID_SUCCESS;
 }
 
 void hid_Stop(hid_state_t *hid) {
@@ -126,20 +127,23 @@ void hid_Stop(hid_state_t *hid) {
     while(!hid->stopped) usb_WaitForEvents();
 }
 
-usb_error_t hid_SetProtocol(hid_state_t *hid, bool report) {
+hid_error_t hid_SetProtocol(hid_state_t *hid, bool report) {
     usb_control_setup_t setup = {0x21, 0x0B, 0, 0, 0};
     setup.wIndex = hid->interface;
     setup.wValue = report;
-    return usb_DefaultControlTransfer(hid->dev, &setup, NULL, 50, NULL);
+    return (hid_error_t)usb_DefaultControlTransfer(hid->dev, &setup, NULL, 50, NULL);
 }
 
-usb_error_t hid_SetIdle(hid_state_t *hid, uint8_t time) {
+hid_error_t hid_SetIdleTime(hid_state_t *hid, uint24_t time) {
     usb_control_setup_t setup = {0x21, 0x0A, 0, 0, 0};
 
     setup.wIndex = hid->interface;
-    setup.wValue = time << 8;
 
-    return usb_DefaultControlTransfer(hid->dev, &setup, NULL, 50, NULL);
+    if(time >= 1024) time = 1023;
+    time &= 0x03FD;
+    setup.wValue = time << 6;
+
+    return (hid_error_t)usb_DefaultControlTransfer(hid->dev, &setup, NULL, 50, NULL);
 }
 
 usb_descriptor_t *hid_GetNext(usb_descriptor_t *search_pos, usb_descriptor_t *end,
@@ -163,7 +167,7 @@ usb_descriptor_t *hid_GetNext(usb_descriptor_t *search_pos, usb_descriptor_t *en
                 usb_interface_descriptor_t *desc = (usb_interface_descriptor_t*)search_pos;
                 if(interface_found) return search_pos;
                 if(desc->bInterfaceClass != USB_HID_CLASS) break;
-                if(desc->bInterfaceSubClass != HID_SUBCLASS_BOOT) break;
+                if(desc->bInterfaceSubClass != HID_BOOT) break;
                 interface_found = true;
                 result->interface = desc->bInterfaceNumber;
                 result->type = desc->bInterfaceProtocol;
@@ -201,37 +205,38 @@ static bool hid_IsKeyDownInReport(hid_keyboard_report_t *report, uint8_t key_cod
     return false;
 }
 
-bool hid_IsKeyDown(hid_state_t *hid, uint8_t key_code) {
+bool hid_KbdIsKeyDown(hid_state_t *hid, uint8_t key_code) {
     uint8_t i;
     if(hid->type != HID_KEYBOARD) return false;
 
     return hid_IsKeyDownInReport(&hid->report.kb, key_code);
 }
 
-bool hid_IsModifierDown(hid_state_t *hid, uint8_t modifier) {
+bool hid_KbdIsModifierDown(hid_state_t *hid, uint8_t modifier) {
     if(hid->type != HID_KEYBOARD) return false;
 
     return hid->report.kb.modifiers & modifier;
 }
 
-usb_error_t hid_SetLEDs(hid_state_t *hid, uint8_t leds) {
+hid_error_t hid_KbdSetLEDs(hid_state_t *hid, uint8_t leds) {
     if(hid->type != HID_KEYBOARD) return USB_ERROR_NOT_SUPPORTED;
     if(hid->out) {
-        return usb_Transfer(hid->out, &leds, 1, 10, NULL);
+        return (hid_error_t)usb_Transfer(hid->out, &leds, 1, 10, NULL);
     } else {
         usb_control_setup_t setup = {0x21, 0x09, 0x200, 0, 1};
         setup.wIndex = hid->interface;
-        return usb_DefaultControlTransfer(hid->dev, &setup, &leds, 1, NULL);
+        return (hid_error_t)usb_DefaultControlTransfer(hid->dev, &setup, &leds,
+                                                       1, NULL);
     }
 }
 
-bool his_IsMouseButtonDown(hid_state_t *hid, uint8_t button) {
+bool his_MouseIsButtonDown(hid_state_t *hid, hid_mouse_button_t button) {
     if(hid->type != HID_MOUSE) return false;
 
     return hid->report.mouse.buttons & (1 << button);
 }
 
-void hid_GetCursorDeltas(hid_state_t *hid, int24_t *x, int24_t *y){
+void hid_MouseGetDeltas(hid_state_t *hid, int24_t *x, int24_t *y){
     *x = hid->delta_x;
     *y = hid->delta_y;
     hid->delta_x = hid->delta_y = 0;
