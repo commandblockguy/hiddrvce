@@ -295,7 +295,7 @@ hid_error_t hid_KbdSetLEDs(hid_state_t *hid, uint8_t leds) {
     }
 }
 
-bool his_MouseIsButtonDown(hid_state_t *hid, hid_mouse_button_t button) {
+bool hid_MouseIsButtonDown(hid_state_t *hid, hid_mouse_button_t button) {
     if(hid->type != HID_MOUSE) return false;
 
     return hid->report.mouse.buttons & (1 << button);

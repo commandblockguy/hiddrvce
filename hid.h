@@ -161,7 +161,7 @@ hid_error_t hid_KbdSetLEDs(hid_state_t *hid, hid_leds_t leds);
  * @param button Button to check
  * @return true if button is down, false otherwise
  */
-bool his_MouseIsButtonDown(hid_state_t *hid, hid_mouse_button_t button);
+bool hid_MouseIsButtonDown(hid_state_t *hid, hid_mouse_button_t button);
 
 /**
  * Get the change in mouse position since the
