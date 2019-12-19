@@ -19,6 +19,7 @@ typedef enum {
     HID_ERROR_NOT_SUPPORTED,
     HID_ERROR_TIMEOUT,
     HID_ERROR_FAILED,
+    HID_NO_INTERFACE,
     HID_USER_ERROR = 100
 } hid_error_t;
 
@@ -110,28 +111,14 @@ struct HID_State {
 };
 
 /**
- * Search for HID boot interfaces
- * Should be called in a loop - \c search_pos should be initialized to
- * the configuration or interface descriptor, and set to the return value
- * of the previous loop's call on subsequent loops.
- * Sets result->interface to -1 if no HID interface was found
- * @note Set the configuration for \c dev before calling.
- * @param search_pos Pointer to the descriptor to search
- * @param end Pointer to the location in memory after the end of the descriptor
- * @param result The HID state for the found interface
- * @param dev The USB device the descriptor describes
- * @return The next value of \c search_pos
- */
-usb_descriptor_t *hid_GetNext(usb_descriptor_t *search_pos, usb_descriptor_t *end,
-                              hid_state_t *result, usb_device_t dev);
-
-/**
  * Start listening to an HID interface.
  * @note Must be called before @param hid can be used with other functions.
  * @param hid HID state from \c hid_GetNext
- * @return USB_SUCCESS if initialization succeeded
+ * @param dev USB device
+ * @param interface Interface to use
+ * @return HID_SUCCESS if initialization succeeded
  */
-hid_error_t hid_Init(hid_state_t *hid);
+hid_error_t hid_Init(hid_state_t *hid, usb_device_t dev, uint8_t interface);
 
 /**
  * Stop listening on an HID interface
@@ -165,7 +152,7 @@ bool hid_KbdIsModifierDown(hid_state_t *hid, uint8_t modifier);
 /**
  * Set the keyboard LEDs
  * @param leds New LED bitmap
- * @return USB_SUCCESS if LEDs were set successfully
+ * @return HID_SUCCESS if LEDs were set successfully
  */
 hid_error_t hid_KbdSetLEDs(hid_state_t *hid, hid_leds_t leds);
 
